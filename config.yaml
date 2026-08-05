@@ -72,15 +72,15 @@ finnhub_key: ""
 
 llm:
   provider: "openai"
-  base_url: "https://api.kimi.com/coding/v1"
+  base_url: "https://api.deepseek.com"
   api_key: null
-  model_name: "kimi-k3"
+  model_name: "deepseek-chat"
 
 llm_thinking:
   provider: "openai"
-  base_url: "https://api.kimi.com/coding/v1"
+  base_url: "https://api.deepseek.com"
   api_key: null
-  model_name: "kimi-k3"
+  model_name: "deepseek-reasoner"
 
 vlm:
   provider: "openai"
@@ -105,7 +105,7 @@ data_agents_config:
 
 research_agent_config:
   belief_list_path: "config/belief_list.json"
-  max_react_step: 10
+  max_react_step: 5
   output_language: "中文"
   tools:
     - "tools.stock_symbol_search_akshare.stock_symbol_search"

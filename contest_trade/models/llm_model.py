@@ -55,7 +55,7 @@ def _normalize_provider(provider: str) -> str:
 
 class LLMModelConfig:
     def __init__(self, provider: str, model_name: str, api_key: str = None, base_url: str = None,
-                 max_retries: int = 3, retry_delay: float = 20.0, timeout: float = 60.0, 
+                 max_retries: int = 3, retry_delay: float = 3.0, timeout: float = 60.0,
                  extra_headers: dict = None, proxys: dict = None, **kwargs):
         self.provider = provider
         self.model_name = model_name
