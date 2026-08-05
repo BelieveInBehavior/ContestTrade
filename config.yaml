@@ -57,23 +57,20 @@ finnhub_key: ""
 llm:
   provider: "openai"
   base_url: "https://api.deepseek.com"
-  #YOUR_DEEPSEEK_API_KEY
-  api_key: null 
+  api_key: "sk-411a085721f24ce3adda71a06a63a4b2"
   model_name: "deepseek-chat"
 
 llm_thinking:
   provider: "openai"
   base_url: "https://api.deepseek.com"
-  #YOUR_DEEPSEEK_API_KEY
-  api_key: null 
+  api_key: "sk-411a085721f24ce3adda71a06a63a4b2"
   model_name: "deepseek-reasoner"
 
 vlm:
   provider: "openai"
-  base_url: "https://api.stepfun.com/v1"
-  #YOUR_STEPFUN_API_KEY
-  api_key: null 
-  model_name: "step-1o-turbo-vision"
+  base_url: "https://api.kimi.com/coding/v1"
+  api_key: "sk-kimi-QN3h5iRZurO4snvvHYXVBuJIuQUMWwC5JZBc9KZ2ADI6GqS9338DYcJdQsNAHWZU"
+  model_name: "kimi-latest"
 
 
 data_agents_config:

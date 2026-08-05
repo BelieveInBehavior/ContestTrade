@@ -235,3 +235,5 @@ test*
 *copy*
 *tmp*
 *_cache
+config.yaml
+config_us.yaml
