@@ -447,7 +447,7 @@ class PriceMarketAkshare(DataSourceBase):
                 
                 response = await GLOBAL_VISION_LLM.a_run(
                     messages=messages,
-                    temperature=0.3,
+                    temperature=1,
                     max_tokens=2000
                 )
             else:

@@ -4,7 +4,7 @@
 
 主要功能：
 1. 获取涨停跌停股票数据（当日）
-2. 获取龙虎榜数据和机构明细（近10天）
+2. 获取龙虎榜数据和机构明细（前10个交易日 + 当日）
 3. 获取概念板块资金流向（实时）
 4. 获取游资营业部资金数据（实时）
 5. 使用LLM分析并生成热钱市场分析报告
@@ -12,12 +12,12 @@
 import pandas as pd
 import asyncio
 import traceback
-from datetime import datetime, timedelta
+from datetime import datetime
 from data_source.data_source_base import DataSourceBase
 from utils.akshare_utils import akshare_cached
 from models.llm_model import GLOBAL_LLM
 from loguru import logger
-from utils.date_utils import get_previous_trading_date
+from utils.date_utils import get_previous_trading_date, get_trading_date_range, get_previous_trading_dates
 
 class HotMoneyAkshare(DataSourceBase):
     def __init__(self):
@@ -88,12 +88,10 @@ class HotMoneyAkshare(DataSourceBase):
             return pd.DataFrame()
 
     def get_lhb_data(self, trade_date: str) -> pd.DataFrame:
-        """获取龙虎榜数据（近10天）"""
+        """获取龙虎榜数据（前10个交易日及当日）"""
         try:
-            # 计算10天前的日期
+            start_date, _ = get_trading_date_range(trade_date, count=10, include_end=False)
             end_date = trade_date
-            start_date_obj = datetime.strptime(trade_date, '%Y%m%d') - timedelta(days=10)
-            start_date = start_date_obj.strftime('%Y%m%d')
             
             df = akshare_cached.run(
                 func_name="stock_lhb_detail_em",
@@ -113,12 +111,10 @@ class HotMoneyAkshare(DataSourceBase):
             return pd.DataFrame()
 
     def get_lhb_jg_data(self, trade_date: str) -> pd.DataFrame:
-        """获取龙虎榜机构明细数据（近10天）"""
+        """获取龙虎榜机构明细数据（前10个交易日及当日）"""
         try:
-            # 计算10天前的日期
+            start_date, _ = get_trading_date_range(trade_date, count=10, include_end=False)
             end_date = trade_date
-            start_date_obj = datetime.strptime(trade_date, '%Y%m%d') - timedelta(days=10)
-            start_date = start_date_obj.strftime('%Y%m%d')
             
             df = akshare_cached.run(
                 func_name="stock_lhb_jgmmtj_em",
@@ -317,12 +313,20 @@ class HotMoneyAkshare(DataSourceBase):
         if not lhb_data.empty:
             sections.append("\n### 二、龙虎榜活跃度")
             
-            lhb_count = len(lhb_data)
-            # 按上榜日期统计最近几天的数据
-            recent_lhb = lhb_data[lhb_data['上榜日'] == trade_date] if '上榜日' in lhb_data.columns else lhb_data
+            prev_trade_dates = set(get_previous_trading_dates(trade_date, 10))
+            if '上榜日' in lhb_data.columns:
+                lhb_data = lhb_data.copy()
+                lhb_data['上榜日'] = lhb_data['上榜日'].astype(str).str.replace("-", "")
+                prev_lhb = lhb_data[lhb_data['上榜日'].isin(prev_trade_dates)]
+                recent_lhb = lhb_data[lhb_data['上榜日'] == trade_date]
+            else:
+                prev_lhb = lhb_data
+                recent_lhb = pd.DataFrame()
+
+            lhb_count = len(prev_lhb)
             recent_count = len(recent_lhb)
             
-            sections.append(f"**龙虎榜上榜股票**: 近10天共{lhb_count}只，{trade_date}当日{recent_count}只")
+            sections.append(f"**龙虎榜上榜股票**: 前10个交易日共{lhb_count}只，{trade_date}当日{recent_count}只")
             
             if not recent_lhb.empty and recent_count <= 10:
                 sections.append("**当日主要龙虎榜股票**:")
@@ -335,13 +339,21 @@ class HotMoneyAkshare(DataSourceBase):
         if not lhb_jg_data.empty:
             sections.append("\n### 三、机构参与情况")
             
-            jg_count = len(lhb_jg_data)
-            total_net_buy = lhb_jg_data['机构买入净额'].sum() if '机构买入净额' in lhb_jg_data.columns else 0
+            prev_trade_dates = set(get_previous_trading_dates(trade_date, 10))
+            jg_df = lhb_jg_data.copy()
+            if '上榜日期' in jg_df.columns:
+                jg_df['上榜日期'] = jg_df['上榜日期'].astype(str).str.replace("-", "")
+                prev_jg = jg_df[jg_df['上榜日期'].isin(prev_trade_dates)]
+            else:
+                prev_jg = jg_df
             
-            sections.append(f"**机构参与股票**: {jg_count}只")
+            jg_count = len(prev_jg)
+            total_net_buy = prev_jg['机构买入净额'].sum() if '机构买入净额' in prev_jg.columns else 0
+            
+            sections.append(f"**机构参与股票**: 前10个交易日共{jg_count}只")
             sections.append(f"**机构净买入**: {total_net_buy/100000000:.2f}亿元")
             
-            top_jg = lhb_jg_data.head(3)
+            top_jg = prev_jg.head(3)
             if not top_jg.empty:
                 sections.append("**主要机构参与股票**:")
                 for _, row in top_jg.iterrows():
