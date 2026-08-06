@@ -11,7 +11,7 @@ from utils.akshare_utils import akshare_cached
 from models.llm_model import GLOBAL_LLM, GLOBAL_VISION_LLM
 from loguru import logger
 from config.config import cfg
-from utils.date_utils import get_previous_trading_date
+from utils.date_utils import get_previous_trading_date, get_trading_date_range
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
@@ -19,6 +19,9 @@ import numpy as np
 import io
 import base64
 from matplotlib.patches import Rectangle
+
+# @generated AI Assistant - 2026-08-05 19:24:00
+KLINE_TRADING_DAYS = 90
 
 class PriceMarketAkshare(DataSourceBase):
     def __init__(self):
@@ -50,9 +53,16 @@ class PriceMarketAkshare(DataSourceBase):
     
     def get_kline_data(self, trade_date: str) -> dict:
         """
-        获取三大指数的K线数据
+        获取三大指数的K线数据（最近 KLINE_TRADING_DAYS 个交易日，含 trade_date 当日）
         """
         try:
+            start_date, end_date = get_trading_date_range(
+                end_date=trade_date,
+                count=KLINE_TRADING_DAYS,
+                include_end=True,
+            )
+            start_dt = pd.to_datetime(start_date, format='%Y%m%d')
+            end_dt = pd.to_datetime(end_date, format='%Y%m%d')
             indices = {
                 "000001.SH": {"symbol": "sh000001", "name": "上证指数"},
                 "399006.SZ": {"symbol": "sz399006", "name": "创业板指"},
@@ -74,11 +84,13 @@ class PriceMarketAkshare(DataSourceBase):
                         logger.warning(f"{info['name']} 数据为空")
                         continue
                     
-                    # 转换日期格式并筛选最近90天的数据
+                    # 按交易日历区间筛选最近90个交易日
                     df['date'] = pd.to_datetime(df['date'])
-                    target_date = datetime.strptime(trade_date, '%Y%m%d')
-                    
-                    filtered_df = df[df['date'] <= target_date].tail(90)
+
+                    filtered_df = (
+                        df[(df['date'] >= start_dt) & (df['date'] <= end_dt)]
+                        .sort_values('date', ascending=True)
+                    )
                     
                     if filtered_df.empty:
                         logger.warning(f"{info['name']} 无{trade_date}之前的数据")
@@ -141,11 +153,12 @@ class PriceMarketAkshare(DataSourceBase):
                     
                     # 转换日期格式并查找指定日期的数据
                     df['date'] = pd.to_datetime(df['date'])
-                    target_date = datetime.strptime(trade_date, '%Y%m%d')
-                    
+                    target_date = pd.to_datetime(trade_date, format='%Y%m%d')
+                    df = df.sort_values('date', ascending=True)
+
                     # 查找指定日期的数据
                     target_row = df[df['date'] == target_date]
-                    
+
                     if target_row.empty:
                         # 如果没有当日数据，取最近的一条数据
                         target_row = df[df['date'] <= target_date].tail(1)

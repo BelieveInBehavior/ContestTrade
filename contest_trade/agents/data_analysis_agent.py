@@ -21,6 +21,10 @@ from models.llm_model import GLOBAL_LLM
 from langchain_core.runnables import RunnableConfig
 from config.config import PROJECT_ROOT, cfg
 from agents.prompts import prompt_for_data_analysis_summary_doc, prompt_for_data_analysis_filter_doc, prompt_for_data_analysis_merge_summary
+from utils.report_utils import (
+    generate_data_agent_report,
+    refresh_combined_data_report,
+)
 
 
 @dataclass
@@ -212,6 +216,12 @@ class DataAnalysisAgent:
                 df = df[df['title'].str.strip() != '']
                 df = df[df['content'].str.strip() != '']
                 df = df[required_columns]
+                if not df.empty:
+                    print(f"\n--- [{source.__class__.__name__}] 数据已拉取 ---", flush=True)
+                    for _, row in df.iterrows():
+                        print(f"Title: {row['title']}", flush=True)
+                        print(f"Content:\n{row['content']}", flush=True)
+                    print("---\n", flush=True)
                 data_dfs.append(df)
             data_df = pd.concat(data_dfs, ignore_index=True)
             data_df['id'] = range(1, len(data_df) + 1)
@@ -288,7 +298,10 @@ class DataAnalysisAgent:
         """Merge multiple batch summaries into final document factor"""
         try:
             if not state["batch_results"]:
-                return "No valid document summaries retrieved"
+                # @generated AI生成 - 2026-08-05 19:52:00 - 开始
+                print("⚠️ No valid document summaries retrieved")
+                return state
+                # @generated AI生成 - 2026-08-05 19:52:00 - 结束
             
             # Merge all batch summaries
             combined_summary = "\n\n".join([
@@ -534,10 +547,23 @@ class DataAnalysisAgent:
     async def _submit_result(self, state: DataAnalysisAgentState) -> DataAnalysisAgentState:
         """Write the result to a file"""
         try:
+            if not state["result"]:
+                return state
             factor_file = self.factor_dir / f'{state["trigger_time"].replace(" ", "_").replace(":", "-")}.json'
+            factor_dict = state["result"].to_dict()
             with open(factor_file, 'w', encoding='utf-8') as f:
-                json.dump(state["result"].to_dict(), f, ensure_ascii=False, indent=4)
-            print(f"Data analysis result saved to {factor_file}")
+                json.dump(factor_dict, f, ensure_ascii=False, indent=4)
+            print(f"Data analysis result saved to {factor_file}", flush=True)
+            if state["result"].context_string:
+                print(f"\n--- [{state['result'].agent_name}] 因子摘要 ---", flush=True)
+                print(state["result"].context_string, flush=True)
+                print("---\n", flush=True)
+            report_path = generate_data_agent_report(factor_dict)
+            combined_path = refresh_combined_data_report(state["trigger_time"])
+            if report_path:
+                print(f"📄 Data Agent 报告已生成: {report_path}", flush=True)
+            if combined_path:
+                print(f"📄 数据汇总报告已更新: {combined_path}", flush=True)
         except Exception as e:
             print(f"Error writing result: {e}")
             import traceback

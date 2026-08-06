@@ -10,9 +10,14 @@ from langgraph.graph import END, StateGraph
 from langchain_core.runnables import RunnableConfig
 from langchain_core.callbacks import dispatch_custom_event
 from config.config import cfg, PROJECT_ROOT
-from agents.data_analysis_agent import DataAnalysisAgent, DataAnalysisAgentConfig, DataAnalysisAgentInput
-from agents.research_agent import ResearchAgent, ResearchAgentConfig, ResearchAgentInput
+from agents.data_analysis_agent import DataAnalysisAgent, DataAnalysisAgentConfig, DataAnalysisAgentInput, DataAnalysisAgentOutput
+from agents.research_agent import ResearchAgent, ResearchAgentConfig, ResearchAgentInput, ResearchAgentOutput
 from utils.market_manager import GLOBAL_MARKET_MANAGER
+from utils.report_utils import (
+    generate_data_agent_report,
+    generate_research_agent_report,
+    refresh_combined_data_report,
+)
 
 # 统一的状态定义
 class CompanyState(TypedDict):
@@ -60,22 +65,21 @@ class SimpleTradeCompany:
         
         print("🚀 开始并发运行Data Agents...")
         
-        # 创建并发任务
-        agent_tasks = []
-        for agent_id, agent in self.data_agents.items():
-            task = self._run_single_data_agent(agent_id, agent, trigger_time, config)
-            agent_tasks.append(task)
+        tasks = [
+            asyncio.create_task(self._run_single_data_agent(agent_id, agent, trigger_time, config))
+            for agent_id, agent in self.data_agents.items()
+        ]
         
-        # 并发执行
-        results = await asyncio.gather(*agent_tasks)
-        
-        # 收集结果
         all_factors = []
         all_events = []
-        for result in results:
-            if result:
-                all_factors.append(result["factor"])
-                all_events.extend(result["events"])
+        for finished in asyncio.as_completed(tasks):
+            result = await finished
+            if not result:
+                continue
+            factor = result["factor"]
+            all_factors.append(factor)
+            all_events.extend(result["events"])
+            self._emit_data_agent_result(factor, config)
         
         print(f"✅ Data Agents完成，有效结果: {len(all_factors)}")
         
@@ -99,22 +103,22 @@ class SimpleTradeCompany:
         
         print("🚀 开始并发运行Research Agents...")
         
-        # 创建并发任务
-        agent_tasks = []
-        for agent_id, agent in self.research_agents.items():
-            task = self._run_single_research_agent(agent_id, agent, trigger_time, data_factors, config)
-            agent_tasks.append(task)
+        tasks = [
+            asyncio.create_task(
+                self._run_single_research_agent(agent_id, agent, trigger_time, data_factors, config)
+            )
+            for agent_id, agent in self.research_agents.items()
+        ]
         
-        # 并发执行
-        results = await asyncio.gather(*agent_tasks)
-        
-        # 收集结果
         all_signals = []
         all_events = []
-        for result in results:
-            if result and result["signals"]:
-                all_signals.extend(result["signals"])
-                all_events.extend(result["events"])
+        for finished in asyncio.as_completed(tasks):
+            result = await finished
+            if not result or not result["signals"]:
+                continue
+            all_signals.extend(result["signals"])
+            all_events.extend(result["events"])
+            self._emit_research_agent_result(result["signals"], trigger_time, config)
         
         print(f"✅ Research Agents完成，有效信号总数: {len(all_signals)}")
         
@@ -164,8 +168,92 @@ class SimpleTradeCompany:
         }
 
     # 辅助函数
+    def _emit_data_agent_result(self, factor, config: RunnableConfig) -> None:
+        """
+        单个 Data Agent 完成后立即输出并广播事件。
+        @generated AI Assistant - 2026-08-05 19:28:00
+        """
+        if not factor:
+            return
+        agent_name = getattr(factor, "agent_name", "unknown")
+        trigger_time = getattr(factor, "trigger_time", "")
+        summary = getattr(factor, "context_string", "") or ""
+        factor_dict = factor.to_dict() if hasattr(factor, "to_dict") else factor
+        safe_time = trigger_time.replace(" ", "_").replace(":", "-")
+        report_path = PROJECT_ROOT / "agents_workspace" / "results" / "data_reports" / agent_name / f"{safe_time}.md"
+        if not report_path.exists():
+            generated = generate_data_agent_report(factor_dict)
+            report_path = generated or report_path
+        combined_path = refresh_combined_data_report(trigger_time)
+        print(f"\n{'=' * 60}", flush=True)
+        print(f"✅ [{agent_name}] 数据已就绪", flush=True)
+        if report_path:
+            print(f"📄 报告: {report_path}", flush=True)
+        if combined_path:
+            print(f"📄 汇总: {combined_path}", flush=True)
+        print(f"{'=' * 60}", flush=True)
+        print(summary if summary else "(无内容)", flush=True)
+        print(f"{'=' * 60}\n", flush=True)
+        dispatch_custom_event(
+            name="data_agent_result_ready",
+            data={
+                "agent_name": agent_name,
+                "context_string": summary,
+                "report_path": str(report_path) if report_path else "",
+                "combined_report_path": str(combined_path) if combined_path else "",
+            },
+            config=config,
+        )
+
+    def _emit_research_agent_result(self, signals: List[Dict], trigger_time: str, config: RunnableConfig) -> None:
+        """
+        单个 Research Agent 完成后立即输出并广播事件。
+        @generated AI Assistant - 2026-08-05 19:28:00
+        """
+        if not signals:
+            return
+        agent_name = signals[0].get("agent_name", "unknown")
+        agent_id = signals[0].get("agent_id", "unknown")
+        safe_time = trigger_time.replace(" ", "_").replace(":", "-")
+        report_path = (
+            PROJECT_ROOT / "agents_workspace" / "results" / "research_reports" / agent_name / f"{safe_time}.md"
+        )
+        lines = [f"\n{'=' * 60}", f"✅ [{agent_name}] 研究信号已就绪", f"{'=' * 60}"]
+        if report_path.exists():
+            lines.append(f"📄 报告: {report_path}")
+        for i, signal in enumerate(signals, 1):
+            symbol = signal.get("symbol_name") or signal.get("symbol_code") or "—"
+            action = signal.get("action") or "—"
+            lines.append(f"{i}. {symbol} | {action}")
+        lines.append(f"{'=' * 60}\n")
+        output = "\n".join(lines)
+        print(output, flush=True)
+        dispatch_custom_event(
+            name="research_agent_result_ready",
+            data={
+                "agent_name": agent_name,
+                "agent_id": agent_id,
+                "signals": signals,
+                "report_path": str(report_path) if report_path.exists() else "",
+            },
+            config=config,
+        )
+
     async def _run_single_data_agent(self, agent_id: int, agent, trigger_time: str, config: RunnableConfig):
         """运行单个data agent"""
+        factor_file = agent.factor_dir / f'{trigger_time.replace(" ", "_").replace(":", "-")}.json'
+        if factor_file.exists():
+            try:
+                with open(factor_file, "r", encoding="utf-8") as f:
+                    factor = DataAnalysisAgentOutput(**json.load(f))
+                print(f"⏭️ Data Agent {agent_id} ({agent.config.agent_name}) 已有结果，跳过运行", flush=True)
+                report_path = generate_data_agent_report(factor.to_dict())
+                if report_path:
+                    print(f"📄 报告: {report_path}", flush=True)
+                return {"factor": factor, "events": []}
+            except Exception as e:
+                print(f"加载已有 Data Agent 结果失败，重新运行: {e}", flush=True)
+
         print(f"🔍 开始运行Data Agent {agent_id} ({agent.config.agent_name})...")
         
         agent_input = DataAnalysisAgentInput(trigger_time=trigger_time)
@@ -202,6 +290,27 @@ class SimpleTradeCompany:
 
     async def _run_single_research_agent(self, agent_id: int, agent, trigger_time: str, factors: List, config: RunnableConfig):
         """运行单个research agent"""
+        signal_file = agent.signal_dir / f'{trigger_time.replace(" ", "_").replace(":", "-")}.json'
+        if signal_file.exists():
+            try:
+                with open(signal_file, "r", encoding="utf-8") as f:
+                    result = ResearchAgentOutput(**json.load(f))
+                print(f"⏭️ Research Agent {agent_id} ({agent.config.agent_name}) 已有结果，跳过运行", flush=True)
+                report_path = generate_research_agent_report(result.to_dict(), agent.config.agent_name)
+                if report_path:
+                    print(f"📄 报告: {report_path}", flush=True)
+                signals = self._parse_multiple_results(result.final_result_thinking, result.final_result)
+                valid_signals = []
+                for i, signal in enumerate(signals[:5]):
+                    if signal:
+                        signal["agent_id"] = agent_id
+                        signal["agent_name"] = agent.config.agent_name
+                        signal["signal_index"] = i + 1
+                        valid_signals.append(signal)
+                return {"signals": valid_signals, "events": []} if valid_signals else None
+            except Exception as e:
+                print(f"加载已有 Research Agent 结果失败，重新运行: {e}", flush=True)
+
         print(f"🔍 开始运行Research Agent {agent_id} ({agent.config.agent_name})...")
         
         # 构建背景信息

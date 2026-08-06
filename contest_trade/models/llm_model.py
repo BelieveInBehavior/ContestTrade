@@ -143,10 +143,23 @@ class OpenAIProvider(BaseProvider):
                 self.client = self.client.with_options(default_headers=self.extra_headers)
                 self.async_client = self.async_client.with_options(default_headers=self.extra_headers)
     
+    def _normalize_temperature(self, temperature: float, thinking: Optional[bool] = None) -> float:
+        """
+        Kimi Coding API 温度约束：thinking 关闭时仅允许 0.6，否则仅允许 1。
+        @generated AI Assistant - 2026-08-05 20:58:00
+        """
+        if self.base_url and "kimi.com" in self.base_url.lower():
+            if thinking is False:
+                return 0.6
+            return 1.0
+        return temperature
+
     async def create_stream(self, messages: List[Dict[str, str]], temperature: float, 
                            max_tokens: Optional[int], **kwargs) -> Any:
         self._ensure_clients()  # Ensure clients are initialized
         processed_messages = self.preprocess_messages(messages)
+        thinking_flag = kwargs.get("thinking")
+        temperature = self._normalize_temperature(temperature, thinking=thinking_flag)
         
         params = {
             "model": self.model_name,

@@ -24,6 +24,7 @@ from tools.tool_utils import ToolManager, ToolManagerConfig
 from config.config import cfg, PROJECT_ROOT
 from langchain_core.runnables import RunnableConfig
 from utils.market_manager import GLOBAL_MARKET_MANAGER
+from utils.report_utils import generate_research_agent_report
 
 @dataclass
 class ResearchAgentInput:
@@ -341,7 +342,11 @@ class ResearchAgent:
             signal_file = self.signal_dir / f'{state["trigger_time"].replace(" ", "_").replace(":", "-")}.json'
             with open(signal_file, 'w', encoding='utf-8') as f:
                 json.dump(state["result"].to_dict(), f, ensure_ascii=False, indent=4)
-            print(f"Research result saved to {signal_file}")
+            print(f"Research result saved to {signal_file}", flush=True)
+            result_dict = state["result"].to_dict()
+            report_path = generate_research_agent_report(result_dict, self.config.agent_name)
+            if report_path:
+                print(f"📄 Research Agent 报告已生成: {report_path}", flush=True)
         except Exception as e:
             print(f"Error writing result: {e}")
             import traceback
