@@ -64,15 +64,30 @@ def validate_llm_connection():
         test_messages = [
             {"role": "user", "content": "请回复'连接测试成功'，不要添加任何其他内容。"}
         ]
-        result = GLOBAL_LLM.run(test_messages, max_tokens=1, temperature=0.1, max_retries=0)
-        if result and hasattr(result, 'content') and result.content:
+        result = GLOBAL_LLM.run(
+            test_messages,
+            max_tokens=32,
+            temperature=0.6,
+            thinking=False,
+            max_retries=3,
+            retry_delay=5,
+        )
+        response_text = ""
+        if result:
+            response_text = (getattr(result, "content", "") or getattr(result, "reasoning_content", "") or "").strip()
+        if result and response_text:
             console.print(f"✅ [green]LLM连接成功[/green] - 模型: {GLOBAL_LLM.model_name}")
             return True
         else:
             console.print("❌ [red]LLM连接失败 - 无响应内容[/red]")
             return False
     except Exception as e:
-        console.print(f"❌ [red]LLM连接失败: {str(e)}[/red]")
+        err = str(e)
+        if "429" in err or "overloaded" in err.lower() or "RateLimit" in type(e).__name__:
+            console.print("❌ [red]LLM服务繁忙 (429)[/red] - Kimi 引擎过载，请稍后重试")
+            console.print("ℹ️  [yellow]配置本身可能没问题，这是服务端限流/过载，非 API Key 错误[/yellow]")
+        else:
+            console.print(f"❌ [red]LLM连接失败: {err}[/red]")
         return False
 
 def validate_required_services():

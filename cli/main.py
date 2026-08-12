@@ -534,8 +534,40 @@ async def run_with_events_capture(company, trigger_time: str, display: ContestTr
                 log_msg = f"[{datetime.now().strftime('%H:%M:%S')}] CUSTOM: {custom_event_name} - {custom_data}\n"
                 with open(display.log_file, "a", encoding="utf-8") as f:
                     f.write(log_msg)
-                # 显示到界面
-                display.add_message("自定义事件", f"{custom_event_name}")
+                if custom_event_name == "data_agent_result_ready":
+                    agent_name = custom_data.get("agent_name", "")
+                    summary = custom_data.get("context_string", "")
+                    report_path = custom_data.get("report_path", "")
+                    if agent_name:
+                        display.update_agent_status(agent_name, "completed")
+                    preview = summary if len(summary) <= 1200 else summary[:1200] + "..."
+                    display.add_message(agent_name or "Data Agent", preview)
+                    if report_path:
+                        display.add_message(
+                            get_text("报告", "Report"),
+                            get_text(f"📄 已生成: {report_path}", f"📄 Generated: {report_path}"),
+                        )
+                elif custom_event_name == "research_agent_result_ready":
+                    agent_name = custom_data.get("agent_name", "")
+                    signals = custom_data.get("signals") or []
+                    report_path = custom_data.get("report_path", "")
+                    if agent_name:
+                        display.update_agent_status(agent_name, "completed")
+                    signal_lines = [
+                        f"{i}. {s.get('symbol_name') or s.get('symbol_code', '—')} | {s.get('action', '—')}"
+                        for i, s in enumerate(signals, 1)
+                    ]
+                    display.add_message(
+                        agent_name or "Research Agent",
+                        "\n".join(signal_lines) if signal_lines else get_text("(无信号)", "(no signals)"),
+                    )
+                    if report_path:
+                        display.add_message(
+                            get_text("报告", "Report"),
+                            get_text(f"📄 已生成: {report_path}", f"📄 Generated: {report_path}"),
+                        )
+                else:
+                    display.add_message("自定义事件", f"{custom_event_name}")
             
             # 处理stdout输出（记录到日志和界面）
             if event_type == "on_stdout":
